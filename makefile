@@ -2396,6 +2396,11 @@ SWTP6800MP-A2 = ${SWTP6800C}/mp-a2.c ${SWTP6800C}/m6800.c ${SWTP6800C}/m6810.c \
 	${SWTP6800C}/mp-s.c ${SWTP6800C}/mp-b2.c
 SWTP6800_OPT = -I ${SWTP6800D}
 
+# 63F09 SoC (this fork only: see CLAUDE.md)
+M63F09D = ${SIMHD}/63F09
+M63F09 = ${M63F09D}/m63f09_cpu.c ${M63F09D}/m63f09_exec.c ${M63F09D}/m63f09_acia.c ${M63F09D}/m63f09_sys.c ${M63F09D}/m63f09_dis.c ${M63F09D}/m63f09_fpu.c
+M63F09_OPT = -I ${M63F09D} -DUSE_INT64 -DUSE_ADDR64
+
 INTELSYSD = ${SIMHD}/Intel-Systems
 INTELSYSC = ${SIMHD}/Intel-Systems/common
 
@@ -2645,18 +2650,8 @@ PDQ3_OPT = -I ${PDQ3D}
 #
 # Build everything (not the unsupported/incomplete or experimental simulators)
 #
-ALL = pdp1 pdp4 pdp7 pdp8 pdp9 pdp15 pdp11 pdp10 \
-	vax microvax3900 microvax1 rtvax1000 microvax2 vax730 vax750 vax780 \
-	vax8200 vax8600 besm6 \
-	microvax2000 infoserver100 infoserver150vxt microvax3100 microvax3100e \
-	vaxstation3100m30 vaxstation3100m38 vaxstation3100m76 vaxstation4000m60 \
-	microvax3100m80 vaxstation4000vlc infoserver1000 \
-	nd100 nova eclipse hp2100 hp3000 i1401 i1620 s3 altair altair8800 \
-	altairz80 gri i7094 ibm1130 id16 id32 sds lgp h316 cdc1700 \
-	swtp6800mp-a swtp6800mp-a2 tx-0 ssem b5500 intel-mds \
-	scelbi 3b2 3b2-700 i701 i704 i7010 i7070 i7080 i7090 \
-	sigma uc15 pdp10-ka pdp10-ki pdp10-kl pdp10-ks pdp6 i650 \
-	imlac linc tt2500 sel32
+# 63F09 fork : only the simulators kept as references or templates (see CLAUDE.md, NOTES_63F09_LECTURE.md)
+ALL = m63f09 swtp6800mp-a swtp6800mp-a2 pdp11 vax microvax3900 altairz80
 
 #Insert-Extras-Here
 #End-Of-Extras-Insertion
@@ -3052,6 +3047,12 @@ swtp6800mp-a2 : $(BIN)swtp6800mp-a2$(EXE)
 
 $(BIN)swtp6800mp-a2$(EXE) : ${SWTP6800MP-A2} ${SIM} ${BUILD_ROMS}
 	$(MAKEIT) OPTS="$(SWTP6800_OPT)"
+
+
+m63f09 : $(BIN)m63f09$(EXE)
+
+$(BIN)m63f09$(EXE) : ${M63F09} ${SIM} ${BUILD_ROMS}
+	$(MAKEIT) OPTS="$(M63F09_OPT)"
 
 
 intel-mds : $(BIN)intel-mds$(EXE)
