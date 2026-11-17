@@ -1,3 +1,34 @@
+# SIMH pour le SoC 63F09 / SIMH for the 63F09 SoC
+
+> **Cette version de SIMH ne s'adresse qu'au SoC 63F09.** C'est un fork de [simh/simh](https://github.com/simh/simh)
+> (base : commit `698dc8a1`, 2026-10-25), réduit à ce qui sert à écrire le simulateur fonctionnel du 63F09 (extension
+> 63F09 du 6809, modes 16 et 32 bits, FPU, MMU à 4 anneaux, jusqu'à 8 cœurs ; documentation : <https://63f09.systella.fr/>).
+> Les autres simulateurs de SIMH ont été retirés de ce dépôt (branche `63f09`).
+>
+> **This version of SIMH is only meant for the 63F09 SoC.** It is a fork of [simh/simh](https://github.com/simh/simh)
+> (base: commit `698dc8a1`, 2026-10-25), stripped down to what is needed to write the functional simulator of the 63F09
+> (a 6809 extension with 16/32-bit modes, FPU, a 4-ring MMU and up to 8 cores). The other SIMH simulators have been
+> removed from this repository (branch `63f09`).
+
+**État.** Le simulateur 63F09 n'est pas encore écrit : le plan est dans [`CLAUDE.md`](CLAUDE.md) et les notes de lecture
+du code de SIMH dans [`NOTES_63F09_LECTURE.md`](NOTES_63F09_LECTURE.md). Les simulateurs `swtp6800` (gabarit), `VAX`, `PDP11` et
+`AltairZ80` ne sont conservés que **provisoirement**, comme références (structure SCP, MMU et reprise après faute, affichage,
+réseau, ACIA) ; ils seront retirés une fois le squelette 63F09 en place. Pour construire l'un d'eux : `make swtp6800mp-a2`
+(répondre `n` à la question sur `libpcre3-dev`/`libedit-dev`, ces bibliothèques étant chargées à l'exécution).
+
+**Status.** The 63F09 simulator is not written yet: the plan is in [`CLAUDE.md`](CLAUDE.md) and the reading notes on the SIMH
+code are in [`NOTES_63F09_LECTURE.md`](NOTES_63F09_LECTURE.md). The `swtp6800` (template), `VAX`, `PDP11` and `AltairZ80`
+simulators are kept **temporarily** as references (SCP structure, MMU and fault recovery, display, network, ACIA) and will be
+removed once the 63F09 skeleton exists. To build one of them: `make swtp6800mp-a2` (answer `n` to the `libpcre3-dev`/`libedit-dev`
+question: those libraries are loaded at run time).
+
+**Licence.** Le code de SIMH conserve sa licence et ses mentions d'origine (`LICENSE.txt`, `COPYING.txt`, en-têtes des fichiers) ;
+le texte ci-dessous est celui du README de SIMH, conservé tel quel pour le cadre de simulation (SCP) qui reste utilisé. /
+SIMH code keeps its original license and notices (`LICENSE.txt`, `COPYING.txt`, file headers); the text below is the upstream
+SIMH README, kept unchanged because the simulation framework (SCP) is still in use.
+
+---
+
 # SIMH v4.0 - 19-01 Current
 
 [![Coverity Scan Build Status](https://scan.coverity.com/projects/11982/badge.svg)](https://scan.coverity.com/projects/simh)

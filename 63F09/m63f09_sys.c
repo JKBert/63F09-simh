@@ -34,6 +34,8 @@
 extern DEVICE cpu_dev;
 extern DEVICE acia0_dev;
 extern DEVICE acia1_dev;
+extern DEVICE dma_dev;
+extern DEVICE mmu_dev;
 extern REG cpu_reg[];
 uint16 m63f09_dis_arch (void);
 
@@ -47,6 +49,8 @@ DEVICE *sim_devices[] = {
     &cpu_dev,
     &acia0_dev,
     &acia1_dev,
+    &dma_dev,
+    &mmu_dev,
     NULL
 };
 

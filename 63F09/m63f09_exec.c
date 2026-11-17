@@ -226,31 +226,78 @@ typedef struct {
     uint32 upper;                                       /* bits of PC above the address width: kept (LDMD changes the width) */
     int stop;                                           /* stop reason found during the instruction */
     uint32 badaddr;
+    int mm;                                             /* the MMU translates this instruction */
+    int fic;                                            /* the next byte fetched is the first of the instruction */
+    uint32 nf, nd;                                      /* bytes fetched, data accesses made (cycle numbering for FUSE) */
+    uint32 total;                                       /* cycles of the instruction, 0 until it is decoded */
+    int vecmode;                                        /* the accesses are an interrupt vector fetch */
 } ctx_t;
+
+/* A page fault is not a stop either: the registers are restored from the copy made before the instruction and the TRAP is taken
+   (63F09.vhd, PAGEFAULT_STATE).  STOP_RESET_REQ: the third fault in a row, the hardware resets the core and its MMU. */
+#define STOP_PF_INT     101
+#define STOP_RESET_REQ  7
 
 static t_addr la_to_pa (const ctx_t *x, uint32 la)
 {
     return PA_PREFIX | (x->wide ? la : (0xFFFF0000u | (la & 0xFFFF)));
 }
 
-static uint8 rd8 (ctx_t *x, uint32 la)
+/* Physical address of an access.  With the MMU in play a refusal is a page fault: x->stop is set and the first one only counts (a faulting
+   instruction goes on to its end with dummy data, its writes are dropped and the registers restored afterwards). */
+static t_addr xl (ctx_t *x, uint32 la, int kind)
+{
+    t_uint64 pa;
+    uint32 pos;
+
+    if (!x->mm)
+        return la_to_pa (x, la);
+    if (x->stop == STOP_PF_INT)
+        return 0xFFFFFFFFFULL;
+    if (x->vecmode)
+        kind = MMU_VECTOR;
+    pos = (kind == MMU_FETCH_OP || kind == MMU_FETCH) ? ++x->nf : (x->total ? x->total : x->nf + ++x->nd);
+    if (m63f09_mmu_xlate (x->c, x->wide ? la : (0xFFFF0000u | (la & 0xFFFF)), kind, pos, &pa)) {
+        x->stop = STOP_PF_INT;
+        return 0xFFFFFFFFFULL;
+    }
+    return pa;
+}
+
+static uint8 rd8k (ctx_t *x, uint32 la, int kind)
 {
     uint8 v = 0xFF;
+    t_addr pa = xl (x, la, kind);
 
-    if (m63f09_read8 (la_to_pa (x, la), &v)) {
-        x->stop = STOP_NXM;
+    if (x->stop == STOP_PF_INT)
+        return v;
+    if (m63f09_read8 (pa, &v)) {
+        if (!x->stop)
+            x->stop = STOP_NXM;
         x->badaddr = la;
     }
     return v;
 }
 
+static uint8 rd8 (ctx_t *x, uint32 la)
+{
+    return rd8k (x, la, MMU_READ);
+}
+
 static void wr8 (ctx_t *x, uint32 la, uint8 v)
 {
-    if (m63f09_write8 (la_to_pa (x, la), v) && !x->stop) {
+    t_addr pa;
+
+    if (x->stop == STOP_PF_INT)
+        return;
+    pa = xl (x, la, MMU_WRITE);
+    if (x->stop == STOP_PF_INT)
+        return;
+    if (m63f09_write8 (pa, v) && !x->stop) {
         /* a write to the ROM is ignored by the hardware; only an unmapped address is an error */
         uint8 t;
 
-        if (m63f09_read8 (la_to_pa (x, la), &t)) {
+        if (m63f09_read8 (pa, &t)) {
             x->stop = STOP_NXM;
             x->badaddr = la;
         }
@@ -271,15 +318,17 @@ static void wrn (ctx_t *x, uint32 la, int n, t_uint64 v)
 {
     int i;
 
-    for (i = n - 1; i >= 0; i--) {
-        wr8 (x, la + i, (uint8) v);
-        v >>= 8;
-    }
+    /* the most significant byte first, like the bus of the core: a register of a peripheral can act on the last byte (the MMU commits an
+       entry on byte 3, the DMA takes a count on its last byte) */
+    for (i = 0; i < n; i++)
+        wr8 (x, la + i, (uint8) (v >> (8 * (n - 1 - i))));
 }
 
 static uint8 f8 (ctx_t *x)
 {
-    uint8 v = rd8 (x, x->pc);
+    uint8 v = rd8k (x, x->pc, x->fic ? MMU_FETCH_OP : MMU_FETCH);
+
+    x->fic = 0;
 
     x->pc = (x->pc + 1) & x->amask;
     return v;
@@ -777,7 +826,11 @@ static void exc_masks (m63f09_core_t *c, int vec)
 
 static void take_vector (ctx_t *x, int vec)
 {
-    uint32 v = (uint32) rdn (x, 0xFFFFFFC0u + 2 * (uint32) vec, 2);
+    uint32 v;
+
+    x->vecmode = 1;                                     /* the MMU goes to ring 0 and looks the vector up there */
+    v = (uint32) rdn (x, 0xFFFFFFC0u + 2 * (uint32) vec, 2);
+    x->vecmode = 0;
 
     if (x->wide) {
         x->pc = 0xFFFF0000u | v;
@@ -810,6 +863,8 @@ static void do_rti (ctx_t *x)
         c->imask = m >> 8;
     }
     if (full) {
+        if (x->wide && (c->md & (MD_IE | MD_DZ)) == (MD_IE | MD_DZ))
+            m63f09_mmu_pf_rti (c);                      /* return from a page fault handler */
         if (x->wide)
             c->ds = (uint16) pulln (x, sp, 2);
         c->a = (uint8) pulln (x, sp, 1);
@@ -906,6 +961,7 @@ static void init_ctx (ctx_t *x, m63f09_core_t *c)
     x->ptrw = x->wide ? 4 : 2;
     x->pc = c->pc & x->amask;
     x->upper = c->pc & ~x->amask;
+    x->mm = m63f09_mmu_active (c);
 }
 
 static int any_line (m63f09_core_t *c)
@@ -920,6 +976,34 @@ int m63f09_wake_pending (m63f09_core_t *c)
     return find_int (c, &vec, &full) || (c->wait == WAIT_SYNC && any_line (c));
 }
 
+/* A page fault: the registers come back from the copy made before the instruction, MD gets IE = DZ = 1, a full frame whose PC is the
+   instruction goes on the stack and the TRAP vector is taken (ring 0).  A fault while this is being done (stack or vector not mapped)
+   takes the NMI vector, a third one resets the core (PAGEFAULT_COUNTER, PAGEFAULT_NEST and the detector of 63F09.vhd). */
+static int deliver_pagefault (m63f09_core_t *c, const m63f09_core_t *snap, int *cycles)
+{
+    ctx_t xs, *x = &xs;
+
+    for (;;) {
+        int lvl = m63f09_mmu_pf_level (c);
+
+        if (lvl >= 2)
+            return STOP_RESET_REQ;
+        *c = *snap;
+        m63f09_mmu_pf_begin (c);
+        init_ctx (x, c);
+        c->md = (uint8) (c->md | MD_IE | MD_DZ);
+        do_exception (x, lvl == 0 ? V_TRAP : V_NMI, 1);
+        if (x->stop == STOP_PF_INT)
+            continue;
+        if (x->stop)
+            return x->stop;
+        c->pc = x->upper | (x->pc & x->amask);
+        m63f09_mmu_pf_done (c);
+        *cycles = 21;
+        return 0;
+    }
+}
+
 /* Called before each instruction: takes an interrupt, or leaves the wait state.  Returns 1 when an exception was taken, 2 when the
    core stays idle (CWAI/SYNC), 0 to execute the next instruction. */
 static int service_interrupts (m63f09_core_t *c, int *cycles, int *stop)
@@ -930,8 +1014,17 @@ static int service_interrupts (m63f09_core_t *c, int *cycles, int *stop)
     *stop = 0;
     if (!c->wait && !(c->nmi_pend | c->irq_lines | c->eirq_edge))
         return 0;
+    if (m63f09_mmu_fuse_active (c)) {                   /* FUSE is not 0: the interrupt lines do not reach the core */
+        if (c->wait) {
+            *cycles = 1;
+            return 2;
+        }
+        return 0;
+    }
     init_ctx (x, c);
     if (find_int (c, &vec, &full)) {
+        m63f09_core_t snap = *c;
+
         ack_int (c, vec);
         if (c->wait == WAIT_CWAI) {                     /* the whole state is already stacked: masks and vector only */
             exc_masks (c, vec);
@@ -939,6 +1032,10 @@ static int service_interrupts (m63f09_core_t *c, int *cycles, int *stop)
         } else
             do_exception (x, vec, full);
         c->wait = 0;
+        if (x->stop == STOP_PF_INT) {                   /* the frame or the vector is not mapped */
+            *stop = deliver_pagefault (c, &snap, cycles);
+            return 1;
+        }
         c->pc = x->upper | (x->pc & x->amask);
         *cycles = full ? 21 : 10;
         *stop = x->stop;
@@ -1564,6 +1661,7 @@ static int step_inner (m63f09_core_t *c, int *cycles)
     if (!dtab_ready)
         build_tables ();
     init_ctx (x, c);
+    x->fic = 1;
 
     b0 = f8 (x);
     opc = b0;
@@ -1580,6 +1678,8 @@ static int step_inner (m63f09_core_t *c, int *cycles)
     *cycles = (ai == 0 ? row->cycles_6809 : ai == 1 ? row->cycles_6309 : row->cycles_63f09);
     if (*cycles == 0)
         *cycles = row->cycles_63f09 ? row->cycles_63f09 : row->cycles_6309 ? row->cycles_6309 : 2;
+    x->total = (uint32) *cycles;
+    m63f09_mmu_set_total (c, x->total);
 
     switch (d->kind) {
         case K_ALU: {
@@ -1886,16 +1986,21 @@ static int step_inner (m63f09_core_t *c, int *cycles)
 }
 
 /* Executes one instruction of a core (or takes an interrupt).  Returns 0 and the cycles used, or a STOP_* code. */
-int m63f09_step (m63f09_core_t *c, int *cycles)
+static int step_core (m63f09_core_t *c, int *cycles)
 {
     int r, took, stop;
+    m63f09_core_t snap;
 
     took = service_interrupts (c, cycles, &stop);
     if (took == 1)
         return stop;
     if (took == 2)
         return 0;
+    if (m63f09_mmu_active (c))
+        snap = *c;                                      /* a page fault restores the registers: the instruction is replayed */
     r = step_inner (c, cycles);
+    if (r == STOP_PF_INT)
+        return deliver_pagefault (c, &snap, cycles);
     if (r == STOP_TRAP_INT) {
         ctx_t xs, *x = &xs;
 
@@ -1911,5 +2016,13 @@ int m63f09_step (m63f09_core_t *c, int *cycles)
         c->pc = x->upper | (x->pc & x->amask);
         return 0;
     }
+    return r;
+}
+
+int m63f09_step (m63f09_core_t *c, int *cycles)
+{
+    int r = step_core (c, cycles);
+
+    m63f09_mmu_advance (c, *cycles);
     return r;
 }

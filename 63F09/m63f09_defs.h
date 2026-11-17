@@ -143,3 +143,21 @@ int m63f09_disasm (FILE *of, t_addr addr, const uint8 *mem, int avail, uint16 ar
 #define M63_MAXINSN     12                              /* longest instruction (page + opcode + 64-bit immediate = 10) */
 
 #endif
+
+/* MMU 63F29 (m63f09_mmu.c).  m63f09_mmu_active: 0 while the MMU and its FUSE have never been touched (translation is then the plain
+   0xF prefix), so the interpreter keeps its fast path.  Kinds of access: */
+#define MMU_FETCH_OP    0                               /* first byte of an instruction: needs execute and read */
+#define MMU_FETCH       1                               /* other bytes of the instruction: read */
+#define MMU_READ        2
+#define MMU_WRITE       3
+#define MMU_VECTOR      4                               /* interrupt vector: ring 0 */
+int m63f09_mmu_active (const m63f09_core_t *c);
+int m63f09_mmu_fuse_active (const m63f09_core_t *c);    /* FUSE is not 0: the interrupt lines are masked */
+void m63f09_mmu_set_total (const m63f09_core_t *c, uint32 total);
+void m63f09_mmu_advance (const m63f09_core_t *c, int cycles);
+int m63f09_mmu_xlate (const m63f09_core_t *c, uint32 la, int kind, uint32 pos, t_uint64 *pa);   /* 0, or 1 for a page fault */
+int m63f09_mmu_pf_level (const m63f09_core_t *c);
+void m63f09_mmu_pf_begin (const m63f09_core_t *c);
+void m63f09_mmu_pf_done (const m63f09_core_t *c);
+void m63f09_mmu_pf_rti (const m63f09_core_t *c);
+

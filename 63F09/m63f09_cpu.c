@@ -62,7 +62,7 @@ uint16 m63f09_dis_arch (void)
 
 t_uint64 m63f09_cpu_hz = 100000000ULL;
 
-#define M63_MAXIO   16
+#define M63_MAXIO   32
 static struct { t_addr base; uint32 size; m63f09_io_rd_t rd; m63f09_io_wr_t wr; void *ctx; } io_tab[M63_MAXIO];
 static int io_n = 0;
 

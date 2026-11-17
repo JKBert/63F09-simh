@@ -2398,7 +2398,7 @@ SWTP6800_OPT = -I ${SWTP6800D}
 
 # 63F09 SoC (this fork only: see CLAUDE.md)
 M63F09D = ${SIMHD}/63F09
-M63F09 = ${M63F09D}/m63f09_cpu.c ${M63F09D}/m63f09_exec.c ${M63F09D}/m63f09_acia.c ${M63F09D}/m63f09_sys.c ${M63F09D}/m63f09_dis.c ${M63F09D}/m63f09_fpu.c
+M63F09 = ${M63F09D}/m63f09_cpu.c ${M63F09D}/m63f09_exec.c ${M63F09D}/m63f09_acia.c ${M63F09D}/m63f09_dma.c ${M63F09D}/m63f09_mmu.c ${M63F09D}/m63f09_sys.c ${M63F09D}/m63f09_dis.c ${M63F09D}/m63f09_fpu.c
 M63F09_OPT = -I ${M63F09D} -DUSE_INT64 -DUSE_ADDR64
 
 INTELSYSD = ${SIMHD}/Intel-Systems

@@ -208,7 +208,7 @@ Conséquences pour ce simulateur :
   code, conserver les mentions d'origine.
 - **Allègement de l'arbre** (question de l'utilisateur, 2026-11-10) : voir ci-dessous.
 
-## Allègement de l'arbre (fait le 2026-11-10 sur la branche `63f09`, non commité)
+## Allègement de l'arbre (fait le 2026-11-10, commité le 2026-11-11 sur `master`)
 
 Décision de l'utilisateur : un seul simulateur, pas l'ensemble. Fait après la lecture (`NOTES_63F09_LECTURE.md`) : suppression
 de 38 répertoires de simulateurs (dont `display`), de `Visual Studio Projects`, `.github`, `appveyor.yml`, des `build_*.bat` et
@@ -302,6 +302,31 @@ répertoires supprimés : les résoudre par `git rm`.
   (`poll()` puis `read`, la fin de l'entrée est mémorisée ; la commande `SEND` de SCP continue de marcher). Un caractère n'est pris que si le récepteur a été lu, puis le suivant attend la durée d'un caractère. L'interruption
   de l'ACIA0 est **EIRQ23**, celle de l'ACIA1 EIRQ22 (`SoC.vhd`), niveau actif tant que `(RIE et RDRF) ou (TIE et TDRE)` (drapeau du registre d'état) ; vecteur `$FFFFFFEE` pour EIRQ23. `run_acia.py`.
   **Piège** : après un `reset` le diviseur vaut `$FFFF` (environ 23 bauds) : un programme qui ne le programme pas voit un caractère toutes les 0,4 s de temps simulé.
+- **2026-11-17 : DMA 63F44** (`m63f09_dma.c`, nouveau périphérique `DMA`) : modèle fonctionnel du VHDL `63F44.vhd` (écrit le 2026-11-17, testé par `regress/proto/dma/tb_dma.vhd`) et du chapitre « Le DMA 63F44 » du manuel.
+  Pages provisoires (`SoC.vhd` ne les décode pas encore) : contrôle `$FFFE8000`, canal c à `$FFFE7000 - c x $1000` (4 canaux d'E/S). Registres, validation au GO contre les deux fenêtres (causes 7 > 3 > 1 > 2 ; 4 pour un
+  chaînage invalide), modes d'adresse incrément/décrément/fixe, blocs de 512 octets en tourniquet (mode rafale : tout d'un coup), chaînage par registres d'ombre, ABORT (cause 6), RESET, acquittement par la lecture de STATE :
+  ceux du VHDL. **Écarts voulus** : copie octet par octet (le RTL déplace des mots de 64 bits avec masque : même résultat sauf recouvrement à moins de 8 octets en incrément/incrément, que le RTL laisse indéfini) ; pas de
+  cache donc pas de messages `INV_*` ; durée d'un bloc estimée, non mesurée ; seule la mémoire externe répond (ROM, RAM interne, périphériques : erreur de bus, cause 5). La sortie d'interruption n'est pas câblée dans
+  `SoC.vhd` : `DEPOSIT DMA IRQLINE n` la relie à la ligne EIRQn du cœur 0 (255 = aucune, défaut). `63F09/tests/run_dma.py` : 19 / 19 (copies alignée, non alignée, décrément, fixe, rafale, causes 1 2 3 5 7, abandon,
+  deux canaux, chaînage valide et invalide, interruption acquittée par la lecture), contrôle négatif vérifié ; sans référence RTL (le banc `soc63f09` n'a pas encore le DMA).
+- **2026-11-17 : MMU 63F29** (`m63f09_mmu.c`, périphérique `MMU`, une par cœur) : modèle fonctionnel de `63F29.vhd` (les commentaires de l'architecture sont la spécification). 4 anneaux de 64 entrées (étiquette = page logique,
+  charge utile : 27 toujours mappée, 26 X, 25 W, 24 R, 23-0 page physique), registres à `$FFFD0000 + $1000 x cœur` (RING, FUSE, STATUS, MAXRING, TAG_STAGING, nombre d'entrées, flux plat des étiquettes `$100`, âges `$600`, charges
+  utiles `$800`), commit à l'écriture du dernier octet = écriture de l'entrée dans l'entrée choisie par le matériel (même étiquette, sinon libre, sinon la plus ancienne non toujours mappée), échec de validation = STATUS(6),
+  vieillissement LRU, fautes (non mappé 1, exécution 2, écriture 4, lecture 8, étiquette en double : STATUS(7)), fenêtre de registres de sa propre MMU jamais traduite. Dans l'interpréteur (`m63f09_exec.c`) : chemin rapide intact tant que
+  RING, CURRENT_RING et FUSE n'ont jamais été touchés (`m63f09_mmu_active`) ; sinon chaque accès est traduit, une faute positionne `STOP_PF_INT`, **les registres sont restaurés** depuis la copie faite avant l'instruction et le TRAP est pris
+  (MD IE = DZ = 1, trame complète dont le PC est l'instruction : RTI la rejoue). Une faute pendant la livraison (pile ou vecteur non mappé) prend le vecteur NMI, la troisième arrête le simulateur (`Third page fault in a row`, le
+  matériel réinitialise le cœur et la MMU) ; `PAGEFAULT_NEST` : RTI d'une trame de faute le décrémente. Une prise de vecteur entre en anneau 0 (RING(1:0) et CURRENT_RING forcés à 0) et cherche le vecteur dans l'anneau 0.
+  **FUSE** : compte des **cycles de bus**, pas des instructions. L'anneau qui traduit (CURRENT_RING) ne suit RING(1:0) que lorsque FUSE vaut 0, et les lignes d'interruption sont masquées tant qu'il ne vaut pas 0. Écrit en ring 0
+  seulement, au dernier cycle de l'instruction qui l'écrit, et l'écriture l'emporte sur la décrémentation de ce cycle : écrit k au cycle Tw, FUSE vaut k au début du cycle Tw + 1 et 0 au début du cycle Tw + k + 1, qui est le premier
+  traduit dans le nouvel anneau. Le simulateur compte les cycles de chaque instruction avec ceux de la table ; le premier octet lu est le cycle 1, un accès de donnée est placé dans le dernier cycle. Exact aux frontières d'instruction
+  (`JMP` : 2 + 7 + 6 cycles après l'écriture de FUSE, `mmuU1.asm`) et pour `RTI` (opcode dans l'ancien anneau, trame dépilée dans le nouveau, FUSE = 10 : `LDA #` 2 + `STA` 7 + 1) ; **approximatif pour une bascule au milieu d'une longue
+  instruction** (une instruction qui lit puis écrit, `TFM`...). Une lecture de FUSE rend la valeur restante.
+  **Correction de l'interpréteur** : `wrn` écrivait l'octet de poids faible en premier ; le cœur écrit le poids fort d'abord (la MMU valide une entrée à l'octet 3, le DMA prend un compte à son dernier octet) : corrigé, `run_isa` 613 / 613.
+  **Validation** : `run_mmu_exp.py` rejoue les 13 programmes `~/vhdl/63F09/regress/asm/mmu*.asm` (générés par `proto/mmu_test/gen_mmu2.py`, valeurs attendues = modèle Python vérifié contre la simulation VHDL) : 0 écart sur 8 000 valeurs
+  (âges LRU, éviction, flux de tags, STATUS...). `run_mmu.py` : balayage de FUSE de 0 à 80 (B = octets de la glissière exécutés dans l'anneau 1, attendu par le calcul ci-dessus), `RTI` retour en anneau 1, trois fautes de page rejouées après
+  réparation par le gestionnaire ; auto-contrôle, tout passe. **L'émulateur RTL `soc63f09` ne sert pas d'oracle ici** (2026-11-17, après la recompilation du propriétaire) : une écriture dans un registre de la MMU (RING, FUSE, TAG_STAGING...) se relit
+  à 0 et `mmuU1` n'y traduit rien ; `--rtl` de `run_mmu.py` le compare quand même. **Non modélisé** : le micro-TLB (aide de timing), l'accès distant à la MMU d'un cœur arrêté, les attentes de lecture des registres, la ROM écrite par
+  `mmuU1` (pile mappée sur une page de ROM : `set cpu romwr`), le temps d'un CWAI/SYNC dans le compte de FUSE ; un NMI relâché pendant FUSE n'est pas perdu (la ligne est mémorisée).
 - Reste à faire de M1 : voir la section suivante.
 
 ## M1 : état et reste à faire (2026-11-11)
@@ -325,6 +350,9 @@ quand le RTL peut les jouer. **M1 est fonctionnellement terminé** : les 546 mn�
 | `run_exc16.py` | 6809/6309 : `SWI` x3, `RTI`, `FIRQ` (sans référence RTL : un cœur 16 bits ne voit que la ROM) | auto-contrôle, OK |
 | `run_irq.py` | lignes IRQ/FIRQ/NMI/EIRQ, `CWAI`, `SYNC` (pilotées par script) | auto-contrôle, 7 / 7 |
 | `run_acia.py` | ACIA0 : entrée par un tube sur stdin (écho par scrutation) et interruption de réception sur EIRQ23 (écho par le gestionnaire) | auto-contrôle, 2 / 2 |
+| `run_mmu.py` | MMU : FUSE (0 à 80 cycles), RTI vers un autre anneau, fautes de page rejouées | auto-contrôle, 34 / 34 |
+| `run_mmu_exp.py` | MMU : 13 programmes de `regress/asm` contre leurs `.exp` (modèle Python) | 0 écart |
+| `run_dma.py` | DMA 63F44 : copies (alignée, non alignée, décrément, fixe, rafale), causes d'erreur, abandon, canaux multiples, chaînage, interruption | auto-contrôle, 19 / 19 |
 
 Mesuré : **43 MIPS** sur une boucle serrée. Programmes GCC exécutés : `gcc-16.2.0/test/soc_hello.c` (`counter = $61`, comme `soc63f09`), `newlib_hello` (`iprintf`), `hello.c` complet (`puts` + `printf`).
 
@@ -354,7 +382,7 @@ Mesuré : **43 MIPS** sur une boucle serrée. Programmes GCC exécutés : `gcc-1
 ## Règles de travail
 
 - Répondre en français ; messages de commit en anglais, avec la ligne d'attribution habituelle.
-- **Toujours demander avant de commiter** ; travailler sur une branche `63f09`, `master` suit l'amont.
+- **Toujours demander avant de commiter** ; `master` est notre propre branche (on ne suit jamais l'amont) ; la branche `63f09` a été supprimée (2026-11-11). Les fins de ligne : l'index de l'amont stocke 430 fichiers en CRLF, `.gitattributes` impose LF : `git status` les montre modifiés ; ne jamais faire `git commit -a`, ajouter les fichiers par leur nom.
 - Chaque nouveau fichier source du port porte la ligne de copyright « Dr. BERTRAND Joël » et Claude, ajoutée à la création.
 - Ne pas modifier les fichiers amont sauf le `makefile` (quelques lignes), pour garder la fusion avec `simh/simh` simple.
 - Construire avec `make -j5 m63f09`. Fichiers durables sous `~/cvs/gcc` (jamais dans `/tmp`).

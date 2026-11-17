@@ -1,7 +1,7 @@
 #!/bin/sh
 # run_all.sh : every oracle of the 63F09 simulator, one line of summary each (about 10 minutes).  Run from anywhere.
 cd "$(dirname "$0")" || exit 1
-for t in run_isa run_wide run_misc run_exc run_exc16 run_irq run_acia; do
+for t in run_isa run_wide run_misc run_exc run_exc16 run_irq run_acia run_dma run_mmu run_mmu_exp; do
   printf '%-10s ' $t; python3 $t.py 2>&1 | tail -1
 done
 printf '%-10s ' run_shn; python3 run_shn.py 2>&1 | tail -1
