@@ -14,7 +14,7 @@ import os, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SIM = os.path.join(HERE, '..', '..', 'BIN', 'm63f09')
-RTL = os.path.expanduser('~/cvs/gcc/github/63F09-emulator/build/soc63f09')
+RTL = os.environ.get('SOC63F09') or os.path.expanduser('~/cvs/gcc/github/63F09-emulator/build/soc63f09')
 A09 = os.path.expanduser('~/cvs/gcc/binutils-gdb/test/a09_reference/a09')
 CONV = os.path.join(HERE, '..', 'tools', 's09_to_elf.py')
 verbose = '-v' in sys.argv
@@ -31,6 +31,8 @@ FUSE        EQU     MMU0+1
 STATUS      EQU     MMU0+2
 MAXRING     EQU     MMU0+3
 TAG_STAGING EQU     MMU0+4
+FADDR       EQU     MMU0+8
+NIND        EQU     MMU0+12
 IND_RING0   EQU     MMU0+$800
 IND_RING1   EQU     MMU0+$A00
 IND_RING2   EQU     MMU0+$C00
@@ -130,10 +132,13 @@ def pf_prog():
     body += '\t\tLDA\t\t>$00005000\n\t\tSTA\t\t>RES+4\n'                  # page fault (not mapped), replayed after the handler mapped the page
     body += '\t\tINC\t\t>PHASE\n\t\tSTA\t\t>$00006000\n'                  # write denied (page mapped read only), replayed once it can be written
     body += '\t\tINC\t\t>PHASE\n\t\tJSR\t\t>$00007000\n'                  # execute denied (page without X), replayed
-    body += '\t\tLDA\t\t#$5A\n\t\tSTA\t\t>RES+7\nEND\t\tBRA\t\tEND\n'
+    body += '\t\tLDA\t\t#$5A\n\t\tSTA\t\t>RES+7\n\t\tLDA\t\t>NIND\n\t\tSTA\t\t>RES+20\nEND\t\tBRA\t\tEND\n'
     # handler : RES+0.. = STATUS of the three faults, RES+3 = number of faults, the page is repaired according to PHASE
     body += '\t\tORG\t\t$FFFF8000\nPFH\t\tLDA\t\t>PHASE\n\t\tLDB\t\t>STATUS\n\t\tLDX\t\t#RES\n\t\tLEAX\tA,X\n\t\tSTB\t\t,X\n'
-    body += '\t\tINC\t\t>RES+3\n\t\tTSTA\n\t\tBEQ\t\tP0\n\t\tCMPA\t#1\n\t\tBEQ\t\tP1\n'
+    body += '\t\tINC\t\t>RES+3\n'
+    # FAULT_ADDR (4 bytes, MMU0+8) of this fault goes to RES+8+4*PHASE
+    body += '\t\tLDB\t\t#4\n\t\tMUL\n\t\tLDX\t\t#RES+8\n\t\tLEAX\tD,X\n\t\tLDQ\t\t>FADDR\n\t\tSTQ\t\t,X\n\t\tLDA\t\t>PHASE\n'
+    body += '\t\tTSTA\n\t\tBEQ\t\tP0\n\t\tCMPA\t#1\n\t\tBEQ\t\tP1\n'
     body += '\t\tLDQ\t\t#$00007000\n\t\tSTQ\t\t>TAG_STAGING\n\t\tLDQ\t\t#$0DFFFFF9\n\t\tSTQ\t\t>IND_RING0\n\t\tRTI\n'
     body += 'P0\t\tLDQ\t\t#$00005000\n\t\tSTQ\t\t>TAG_STAGING\n\t\tLDQ\t\t#$0BFFFFC6\n\t\tSTQ\t\t>IND_RING0\n\t\tRTI\n'
     body += 'P1\t\tLDQ\t\t#$00006000\n\t\tSTQ\t\t>TAG_STAGING\n\t\tLDQ\t\t#$0BFFFFC7\n\t\tSTQ\t\t>IND_RING0\n\t\tRTI\n'
@@ -148,7 +153,9 @@ def pf_prog():
 def sc_pf():
     # RES+0 = STATUS after the unmapped read (ring 0, code 1) ; RES+1 = write denied (code 4) ; RES+2 = execute denied (code 2) ;
     # RES+3 = $EE + 3 faults ; RES+4 = the replayed load got its data (the page mapped at the fault is internal RAM, zero) ; RES+7 = done
-    return [('page faults replayed after the handler', pf_prog(), bytes([0x01, 0x04, 0x02, 0xF1, 0x00, 0xEE, 0xEE, 0x5A]))]
+    return [('page faults replayed after the handler', pf_prog(), bytes([0x01, 0x04, 0x02, 0xF1, 0x00, 0xEE, 0xEE, 0x5A,
+                                                                       0x00, 0x00, 0x50, 0x00, 0x00, 0x00, 0x60, 0x00,
+                                                                       0x00, 0x00, 0x70, 0x00, 0x40]))]
 
 
 def build(asm):

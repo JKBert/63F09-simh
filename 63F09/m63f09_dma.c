@@ -24,7 +24,7 @@
    windows, the causes of error, the modes of address (increment, decrement, fixed), the blocks of 512 bytes served round robin, the
    chaining by shadow registers, ABORT, RESET and the acknowledgement by reading STATE are those of the VHDL.
 
-   Pages (provisional, not decoded by SoC.vhd yet): control $FFFE8000, channel c at $FFFE7000 - c x $1000, 4 I/O channels.
+   Pages (decoded by SoC.vhd since 2026-11-17): control $FFFE8000, channel c at $FFFE7000 - c x $1000, 4 I/O channels.
    Registers of the control page: +0 CTL (bit 0 ENABLE, bit 1 ABORT, bit 2 RESET), +1 STATUS, +2/+3 EPOCH, +4 INT_STATUS, +5 CHANNELS,
    +8 MEM_BASE, +$10 MEM_LIMIT, +$18 DEV_BASE, +$20 DEV_LIMIT, +$30 CTX_BASE, +$38 CTX_LIMIT (8 bytes each, big endian, 36 bits).
    Registers of a channel page: +0 SRC (8 bytes), +8 DST (8), +$10 COUNT (4), +$14 CONTROL (bit 0 GO, 1 MODE, 3-2 source mode,
@@ -36,7 +36,9 @@
    the same except for an increment/increment copy whose two ranges overlap closer than 8 bytes, which the RTL leaves undefined) ; no
    cache: the range messages INV_* have no one to go to ; the time a block takes is a plain estimate, not measured.  The DMA reaches the
    external memory only (the 64-bit bus): the ROM, the internal RAM and the peripherals answer with a bus error (cause 5).
-   The interrupt output is not wired in SoC.vhd yet: DEPOSIT DMA IRQLINE n connects it to the line EIRQn of core 0 (255 = none).
+   The interrupt output is EIRQ15 in SoC.vhd (vector $FFFFFFDE): the default here.  DEPOSIT DMA IRQLINE n moves it to the line EIRQn of core 0 (255 = none).
+   The master side of the DMA is not connected to the 64-bit bus in SoC.vhd yet (2026-11-17): the SoC answers every request with a bus error
+   (cause 5), the simulator moves the data.  Same for the invalidation messages of the caches, which the simulator does not have.
 */
 
 #include <string.h>
@@ -80,7 +82,7 @@ static struct {
     uint32   blocks;                                    /* statistics: blocks moved */
 } dma;
 
-static uint8 dma_irqline = 255;                         /* EIRQ line of the interrupt output, 255 = not connected (kept by a reset) */
+static uint8 dma_irqline = 15;                          /* EIRQ line of the interrupt output (EIRQ15 in SoC.vhd), 255 = not connected (kept by a reset) */
 
 /* Byte I (0 = most significant) of a 36-bit value held as 8 big endian bytes, and the same of a 32-bit value */
 static uint8 get36 (t_uint64 v, int i)

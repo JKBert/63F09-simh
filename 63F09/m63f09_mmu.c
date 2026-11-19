@@ -51,6 +51,7 @@
 typedef struct {
     uint8    ring, status, maxring;
     uint32   tag_stg, pay_stg;
+    uint32   faddr;                                     /* FAULT_ADDR: virtual address of the last fault */
     int      ring_stg;
     uint32   bank[NRING][NENT];                         /* 20-bit tags */
     uint32   pay[NRING][NENT];
@@ -213,6 +214,7 @@ int m63f09_mmu_xlate (const m63f09_core_t *c, uint32 la, int kind, uint32 pos, t
         }
     }
     m->status = (uint8) ((m->status & 0xC0) | (m->cur << 4) | code);
+    m->faddr = la;                                      /* same event as STATUS */
     return 1;
 }
 
@@ -245,7 +247,8 @@ static int mmu_rd (void *ctx, uint32 off, uint8 *val)
     else if (off == 2) *val = m->status;
     else if (off == 3) *val = m->maxring;
     else if (off >= 4 && off < 8) *val = (uint8) (m->tag_stg >> (24 - 8 * (off - 4)));
-    else if (off == 8) *val = NENT;
+    else if (off >= 8 && off < 12) *val = (uint8) (m->faddr >> (24 - 8 * (off - 8)));
+    else if (off == 12) *val = NENT;
     else if ((off >> 9) == 3) {                         /* $600-$7FF: ages, A(8:7) ring, A(6:0) entry */
         if ((off & 0x7F) < NENT)
             *val = m->lru[(off >> 7) & 3][off & 0x7F];
@@ -362,6 +365,7 @@ UNIT mmu_unit = { UDATA (NULL, 0, 0) };
 REG mmu_reg[] = {
     { HRDATAD (RING0, mm[0].ring, 8, "core 0: RING register (bit 7 MMU enabled, bits 1-0 ring asked)") },
     { HRDATAD (STATUS0, mm[0].status, 8, "core 0: STATUS") },
+    { HRDATAD (FAULTADDR0, mm[0].faddr, 32, "core 0: FAULT_ADDR") },
     { HRDATAD (MAXRING0, mm[0].maxring, 8, "core 0: MAXRING") },
     { DRDATAD (CURRENT0, mm[0].cur, 2, "core 0: ring that translates now (CURRENT_RING)") },
     { DRDATAD (FUSEEND0, mm[0].sw, 64, "core 0: first cycle with FUSE = 0") },
