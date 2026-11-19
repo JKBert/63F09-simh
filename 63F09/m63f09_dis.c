@@ -135,8 +135,24 @@ static void print_indexed (rd_t *st)
             return;
         }
         case 0x0f: {
-            unsigned long long n = rd_be (st, st->wide ? 4 : 2);
-            fprintf (of, "[$%llx]", n);
+            if (!indirect && st->wide) {
+                /* scaled index : postbyte %1RR01111 then S I sss rrr (as binutils' print_indexed) */
+                static const char *const rn[] = { "A", "B", "E", "F", "D", "W", "Q", "V" };
+                static const char *const scl[] = { "1", "2", "4", "8", "16" };
+                unsigned int e = (unsigned int) rd_be (st, 1);
+
+                if (((e >> 3) & 7) > 4) {
+                    fprintf (of, "<bad indexed extra byte $%02x>", e);
+                    return;
+                }
+                fprintf (of, "%s%s%s*%s,%s%s", (e & 0x40) ? "[" : "", rn[e & 7], (e & 0x80) ? "" : "(U)",
+                         scl[(e >> 3) & 7], idx_base_reg[(pb >> 5) & 3], (e & 0x40) ? "]" : "");
+                return;
+            }
+            {
+                unsigned long long n = rd_be (st, st->wide ? 4 : 2);
+                fprintf (of, "[$%llx]", n);
+            }
             return;
         }
         default:

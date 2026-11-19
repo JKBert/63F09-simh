@@ -619,7 +619,37 @@ static uint32 indexed_ea (ctx_t *x, int dw)
         case 0x09: ea = base + (uint32) sext (fn (x, x->ptrw), x->ptrw * 8); break;
         case 0x0c: { t_int64 o = sext (f8 (x), 8); ea = x->pc + (uint32) o; break; }
         case 0x0d: { t_int64 o = sext (fn (x, x->ptrw), x->ptrw * 8); ea = x->pc + (uint32) o; break; }
-        case 0x0f: ea = (uint32) fn (x, x->ptrw); if (!ind) { x->stop = TRAP_ILL (); } break;
+        case 0x0f:
+            if (ind) {                                  /* [n] : %1xx11111, RR ignored */
+                ea = (uint32) fn (x, x->ptrw);
+                break;
+            }
+            if (!x->wide) {                             /* %1RR01111 : scaled index, 63F09 only */
+                x->stop = TRAP_ILL ();
+                break;
+            }
+            {
+                /* second byte  S I sss rrr  : S signed, I indirect, sss = scale 1..16, rrr = A B E F D W Q V
+                   (INDEXED_POSTBYTE_STATE in 63F09.vhd) ; the base register is not modified */
+                uint8 e = f8 (x);
+                int sc = (e >> 3) & 7, sg = (e & 0x80) != 0;
+                t_int64 v = 0;
+
+                if (sc > 4) { x->stop = TRAP_ILL (); break; }
+                switch (e & 7) {
+                    case 0: v = sg ? sext (x->c->a, 8) : x->c->a; break;
+                    case 1: v = sg ? sext (x->c->b, 8) : x->c->b; break;
+                    case 2: v = sg ? sext (x->c->e, 8) : x->c->e; break;
+                    case 3: v = sg ? sext (x->c->f, 8) : x->c->f; break;
+                    case 4: v = sg ? sext (getreg (x, R_D), 16) : (t_int64) getreg (x, R_D); break;
+                    case 5: v = sg ? sext (getreg (x, R_W), 16) : (t_int64) getreg (x, R_W); break;
+                    case 6: v = (t_int64) (uint32) getreg (x, R_Q); break;
+                    default: v = (t_int64) (uint32) getreg (x, R_V); break;
+                }
+                ea = base + (uint32) (v << sc);
+                ind = (e & 0x40) != 0;
+            }
+            break;
         default: { x->stop = TRAP_ILL (); } break;
     }
     ea &= x->amask;
