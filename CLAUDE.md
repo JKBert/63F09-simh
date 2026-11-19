@@ -142,17 +142,20 @@ Répertoire **`63F09/`** ajouté à ce dépôt (aucun fichier amont modifié, sa
 
 ## Jalons et critères de réussite
 
-| Jalon | Contenu | Critère |
-|---|---|---|
-| M0 | squelette, `make m63f09`, chargeur ELF, lecture du vecteur de reset | `sim> boot` s'exécute, `examine` désassemble |
-| M1 | jeu d'instructions 63F09 en mode 32 bits + exceptions + ACIA0 sur la console (critère révisé : un programme 16 bits ne voit que `FFFF:xxxx` sans MMU) | `newlib_hello` compilé `-m63f09` s'affiche sur l'ACIA0 ; tous les oracles identiques à `soc63f09` |
-| M2 | 63F09 32 bits complet (modes, `TFM`, mul/div, décalages-n, bit-transfer) | programmes de `regress` : mémoire finale identique à l'émulateur RTL |
-| M3 | MMU, anneaux, interruptions, `TRAP`, `FUSE` | tests `mmuR*`, `ring*` de `regress` |
-| M4 | FPU | `dir_fnma`, tests FPU de `regress`, `test/fpu_*` |
-| M5 | SMP, BAC, `HALT`/`DMA`, tous les périphériques | tests `dir_*` fonctionnels (sans les critères de cache) |
-| M6 | stub gdb | `gdb` + `m6809-tdep` : point d'arrêt réellement atteint (jamais testable jusqu'ici) |
-| M7 | compagnon : écran, réseau, audio | selon la spécification du FPGA |
-| M8 | systèmes (FLEX9, UniFLEX, NetBSD) | démarrage |
+État au 2026-11-18. Les jalons sont les neuf du plan d'origine (M0 à M8). Deux d'entre eux, **M2 et M4, ont été réalisés avec M1** : la
+section « M1 : état et reste à faire » plus bas décrit donc le jeu d'instructions complet, FPU et exceptions comprises, et non le seul M1 du tableau.
+
+| Jalon | Contenu | Critère | État |
+|---|---|---|---|
+| M0 | squelette, `make m63f09`, chargeur ELF, lecture du vecteur de reset | `sim> boot` s'exécute, `examine` désassemble | **fait** (2026-11-10) |
+| M1 | jeu d'instructions de base en mode 32 bits + exceptions + ACIA0 sur la console (critère révisé : un programme 16 bits ne voit que `FFFF:xxxx` sans MMU) | `newlib_hello` compilé `-m63f09` s'affiche sur l'ACIA0 ; tous les oracles identiques à `soc63f09` | **fait** (2026-11-11) : 546 mnémoniques, `hello world` |
+| M2 | 63F09 32 bits complet (modes, `TFM`, mul/div, décalages-n, bit-transfer) | programmes de `regress` : mémoire finale identique à l'émulateur RTL | **fait, avec M1** : `run_isa` 613/613, `run_wide` 320/320, `run_shn` 1920/1920, `run_misc` 176/176 |
+| M3 | MMU, anneaux, interruptions, `TRAP`, `FUSE` | tests `mmuR*`, `ring*` de `regress` | **fait** (2026-11-17), pour le cœur 0 : `run_mmu` 34/34 (contre l'émulateur RTL), `run_mmu_exp` 13 programmes sans écart, `run_exc`, `run_irq`. Les programmes `mmuR*` et `ring*` du critère d'origine n'ont pas été rejoués tels quels |
+| M4 | FPU | `dir_fnma`, tests FPU de `regress`, `test/fpu_*` | **fait, avec M1** : `run_fpu`, `run_fpu2`, `run_fpu_edge` |
+| M5 | SMP, BAC, `HALT`/`DMA`, tous les périphériques | tests `dir_*` fonctionnels (sans les critères de cache) | **en partie** : ACIA0 et ACIA1, DMA 63F44 (`run_dma` 19/19). **Reste** : SMP, BAC, `HALT`, PTM, PIA, SPI, TWI, WDG |
+| M6 | stub gdb | `gdb` + `m6809-tdep` : point d'arrêt réellement atteint (jamais testable jusqu'ici) | pas commencé |
+| M7 | compagnon : écran, réseau, audio | selon la spécification du FPGA | pas commencé |
+| M8 | systèmes (FLEX9, UniFLEX, NetBSD) | démarrage | pas commencé |
 
 **Méthode de validation** (prévoir dès M1) : un script `tools/diff_rtl.py` lance le **même ELF** dans SIMH et dans
 `soc63f09 --dump`, compare les plages mémoire surveillées (`watched` des `tests*.json`) ; les sorties des générateurs
@@ -276,7 +279,7 @@ répertoires supprimés : les résoudre par `git rm`.
   avec W = 0 le CC est inchangé. **Décision de l'utilisateur (2026-11-10) : on laisse tel quel** ; N, V, C ne sont PAS garantis par `TFM` (l'ALU décrémente W, ils sont nuls en pratique). Reproduit (`M63_RTL_TFM_LOADS_CC`), à ne pas considérer comme un défaut.
 - Découvertes de la validation : voir binutils-gdb/CLAUDE.md révision #68 (`ADCR`, `STBT`).
 - Critère M1 révisé : un programme 16 bits ne voit que le segment `FFFF:xxxx` (63F09.vhd 1.49) et ne peut atteindre RAM et périphériques qu'avec
-  la MMU configurée : M1 vise donc le jeu de base en mode 32 bits ; le 16 bits avec périphériques relève de M3.
+  la MMU configurée : M1 vise donc le jeu de base en mode 32 bits ; le 16 bits avec périphériques relève de la MMU (jalon M3, fait le 2026-11-17).
 - **2026-11-11 : exceptions faites** (`m63f09_exec.c`, section « Exceptions »), lues dans `63F09.vhd` (`INTERRUPT_*`, `RTI_*`, `CWAI_*`, `SYNC_STATE`, `ERROR_STATE`) : `SWI`, `SWI2`, `SWI3`,
   `RTI`, `CWAI`, `SYNC`, `BITMD`, les lignes `IRQ`/`FIRQ`/`NMI`/`EIRQ0..23` (priorité NMI, FIRQ, IRQ, EIRQ23 à EIRQ0 ; masques `CC.I`/`CC.F` et `imask` ; EIRQ sur niveau ou sur front selon `MD.ED` ;
   `FIRQ` en trame courte quand `MD.FM` = 0), `TRAP` (instruction illégale `MD(7:6)` = 01, division par zéro 10 avec les drapeaux de `CLR` empilés, `TFR`/`EXG` de tailles différentes, octet de
@@ -303,11 +306,11 @@ répertoires supprimés : les résoudre par `git rm`.
   de l'ACIA0 est **EIRQ23**, celle de l'ACIA1 EIRQ22 (`SoC.vhd`), niveau actif tant que `(RIE et RDRF) ou (TIE et TDRE)` (drapeau du registre d'état) ; vecteur `$FFFFFFEE` pour EIRQ23. `run_acia.py`.
   **Piège** : après un `reset` le diviseur vaut `$FFFF` (environ 23 bauds) : un programme qui ne le programme pas voit un caractère toutes les 0,4 s de temps simulé.
 - **2026-11-17 : DMA 63F44** (`m63f09_dma.c`, nouveau périphérique `DMA`) : modèle fonctionnel du VHDL `63F44.vhd` (écrit le 2026-11-17, testé par `regress/proto/dma/tb_dma.vhd`) et du chapitre « Le DMA 63F44 » du manuel.
-  Pages provisoires (`SoC.vhd` ne les décode pas encore) : contrôle `$FFFE8000`, canal c à `$FFFE7000 - c x $1000` (4 canaux d'E/S). Registres, validation au GO contre les deux fenêtres (causes 7 > 3 > 1 > 2 ; 4 pour un
+  Pages décodées par `SoC.vhd` depuis le 2026-11-17 : contrôle `$FFFE8000`, canal c à `$FFFE7000 - c x $1000` (4 canaux d'E/S). Registres, validation au GO contre les deux fenêtres (causes 7 > 3 > 1 > 2 ; 4 pour un
   chaînage invalide), modes d'adresse incrément/décrément/fixe, blocs de 512 octets en tourniquet (mode rafale : tout d'un coup), chaînage par registres d'ombre, ABORT (cause 6), RESET, acquittement par la lecture de STATE :
   ceux du VHDL. **Écarts voulus** : copie octet par octet (le RTL déplace des mots de 64 bits avec masque : même résultat sauf recouvrement à moins de 8 octets en incrément/incrément, que le RTL laisse indéfini) ; pas de
-  cache donc pas de messages `INV_*` ; durée d'un bloc estimée, non mesurée ; seule la mémoire externe répond (ROM, RAM interne, périphériques : erreur de bus, cause 5). La sortie d'interruption n'est pas câblée dans
-  `SoC.vhd` : `DEPOSIT DMA IRQLINE n` la relie à la ligne EIRQn du cœur 0 (255 = aucune, défaut). `63F09/tests/run_dma.py` : 19 / 19 (copies alignée, non alignée, décrément, fixe, rafale, causes 1 2 3 5 7, abandon,
+  cache donc pas de messages `INV_*` ; durée d'un bloc estimée, non mesurée ; seule la mémoire externe répond (ROM, RAM interne, périphériques : erreur de bus, cause 5). La sortie d'interruption est EIRQ15 (vecteur `$FFFFFFDE`, défaut du modèle) :
+  `DEPOSIT DMA IRQLINE n` la déplace sur la ligne EIRQn du cœur 0 (255 = aucune). Le côté maître du DMA n'est pas encore relié au bus de 64 bits dans `SoC.vhd` : le circuit répond à chaque requête par une erreur de bus (cause 5), le simulateur déplace les données. `63F09/tests/run_dma.py` : 19 / 19 (copies alignée, non alignée, décrément, fixe, rafale, causes 1 2 3 5 7, abandon,
   deux canaux, chaînage valide et invalide, interruption acquittée par la lecture), contrôle négatif vérifié ; sans référence RTL (le banc `soc63f09` n'a pas encore le DMA).
 - **2026-11-17 : MMU 63F29** (`m63f09_mmu.c`, périphérique `MMU`, une par cœur) : modèle fonctionnel de `63F29.vhd` (les commentaires de l'architecture sont la spécification). 4 anneaux de 64 entrées (étiquette = page logique,
   charge utile : 27 toujours mappée, 26 X, 25 W, 24 R, 23-0 page physique), registres à `$FFFD0000 + $1000 x cœur` (RING, FUSE, STATUS, MAXRING, TAG_STAGING, nombre d'entrées, flux plat des étiquettes `$100`, âges `$600`, charges
@@ -329,12 +332,14 @@ répertoires supprimés : les résoudre par `git rm`.
   du port est `'1'` ; le générateur de l'émulateur met un port ouvert à 0 (même défaut que le port `CE` du FPU, révision 74 de binutils-gdb), donc `VM <= not RUN_REQ` = 1 et `VM` ne retombe jamais (il faut `E_V` = 1). Le VHDL est correct (GHDL, Vivado) ;
   **corrigé le 2026-11-17** dans `rtl/63F81.vhd` (non commité) : `RUN_REQ => '1', E_V => '1', REM_RW_n => '1', REM_E => '1'` écrits explicitement dans cette instance ; émulateur régénéré : `--ncpus 1` donne les mêmes octets que SIMH sur les 34 cas. `mmuU1.asm` de `regress` suppose la valeur par défaut. **Non modélisé** : le micro-TLB (aide de timing), l'accès distant à la MMU d'un cœur arrêté, les attentes de lecture des registres, la ROM écrite par
   `mmuU1` (pile mappée sur une page de ROM : `set cpu romwr`), le temps d'un CWAI/SYNC dans le compte de FUSE ; un NMI relâché pendant FUSE n'est pas perdu (la ligne est mémorisée).
+- **2026-11-18 : `FAULT_ADDR` (MMU, base+8..11)** : registre en lecture seule de 32 bits, l'adresse logique de l'octet qui a échoué, chargé au même événement que STATUS(5:0) (`m->faddr = la` dans `m63f09_mmu_xlate`, registre `FAULTADDR0`) ; `INDIRECTIONS` passe de base+8 à base+12, réservé à partir de base+13. Même changement dans `63F29.vhd` (rtl/, non commité). Test `run_mmu.py pf` : les trois fautes (lecture non mappée `$00005000`, écriture refusée `$00006000`, exécution refusée `$00007000`) et `INDIRECTIONS` en +12 ; SIMH et l'émulateur RTL régénéré donnent les mêmes octets (`run_mmu.py --rtl`, variable `SOC63F09` pour désigner l'émulateur à utiliser) ; l'ancien émulateur donne la différence attendue.
+- **2026-11-19 : indexé à échelle `R*n,B`** (63F09 seul ; `m63f09_exec.c` `indexed_ea`, case `0x0f`, et `m63f09_dis.c` `print_indexed`) : postoctet `%1RR01111` suivi d'un octet `S I sss rrr` (S signé, I indirect, échelle 1/2/4/8/16, registre A B E F D W Q V ; disposition de `INDEXED_POSTBYTE_STATE` du prototype VHDL, voir `binutils-gdb/CLAUDE.md` révision 85). `[n]` (bit I à 1) est inchangé ; hors 63F09 ou échelle 5-7 : TRAP. La base n'est pas modifiée. Désassembleur : même syntaxe que binutils (`D*4,X`, `D(U)*16,U`, `[V*8,S]`). **Validé** : `63F09/tests/run_idx.py` (génère 1985 cas par `tests/idx/gen_idx.py`, programme `idx/idx_main.c` qui compare sur la cible) : `OK 000007C1 checks, 00000000` sur le simulateur ET sur `soc63f09` régénéré depuis le prototype (variable `EMU`) ; octet d'échelle invalide : TRAP vectoré ; `check_dis.py` : `vq_index.s` identique à `objdump` (seul `pseudo_data.s` diffère, comme avant). Non commité.
 - Reste à faire de M1 : voir la section suivante.
 
 ## M1 : état et reste à faire (2026-11-11)
 
 **Définition retenue de M1** : le jeu d'instructions du 63F09 (6809, 6309, 63F09 32 bits **et FPU**), les exceptions et la console série, validés par des oracles contre `soc63f09` (l'émulateur RTL)
-quand le RTL peut les jouer. **M1 est fonctionnellement terminé** : les 546 mnémoniques sont exécutés et `hello world` s'affiche. Ni la MMU ni le SMP (M2 et suivants).
+quand le RTL peut les jouer. **M1 est fonctionnellement terminé** : les 546 mnémoniques sont exécutés et `hello world` s'affiche. La MMU est venue ensuite (jalon M3, 2026-11-17) ; le SMP reste à faire (M5).
 
 ### Fait et validé (lancer depuis la racine de l'arbre : `python3 63F09/tests/<script>`, ou `63F09/tests/run_all.sh`)
 
@@ -366,8 +371,8 @@ Mesuré : **43 MIPS** sur une boucle serrée. Programmes GCC exécutés : `gcc-1
    (jouables avec `soc63f09 --pins`, socket Unix) ; `SYNC` avec une interruption non masquée (le délai de 3 cycles de la ligne n'est pas modélisé) ; les cas rares de `RMM` pour `FMADD`... en double et
    les conversions `CVTD2S` (les égalités exactes sont traitées pour +, -, *, / et les conversions entières, pas pour les FMA en double) ; `DIVD`/`DIVQ` en mode 16 bits (règle du manuel).
 2. **Périphériques** (ACIA0 : entrée et sortie, interruption de réception câblée sur EIRQ23 ; ACIA1 sur EIRQ22 mais non connectée à la console) : `PTM` (63F40, c'est lui qui donne le temps), `PIA` (63F21), `SPI` (63F52) avec la RTC et la MRAM, `TWI`, `WDG`, et le **BAC (63F81)** : registres, boîte aux lettres, autres cœurs. Le BAC débloque
-   les programmes `dir_*` de `regress` (`run_prog.py` est prêt). Seules l'ACIA0 et l'ACIA1 existent.
-3. **MMU** (M2) et **SMP** (M3) ; `FUSE`.
+   les programmes `dir_*` de `regress` (`run_prog.py` est prêt). Existent aujourd'hui : l'ACIA0 et l'ACIA1, le DMA 63F44 et la MMU 63F29 (une par cœur) ; tout le reste de cette liste manque.
+3. **SMP** (M5). La MMU et `FUSE` sont faits (jalon M3, 2026-11-17).
 4. **Validations manquantes** : arithmétique ordinaire sur `O`, `V`, `Q`, `W` ; formes `,R++`/`,--R` avec les pas 1/2/4/8 sur `LDO`/`STO` ; la pile `PSH`/`PUL` avec `DS`, `V`, `E`, `F` dans tous les sens.
 5. **Temps** : `sim_interval` est décrémenté du minimum de cycles de la table ; pas de `FUSE`, pas de cache DMC, pas de contention de bus ; les instructions FPU utilisent les cycles de la table (mesurés en RTL).
 6. **Outillage** : historique des instructions (`SET CPU HISTORY`), `DEBTAB`, désassemblage de la ligne en cours à l'arrêt.
